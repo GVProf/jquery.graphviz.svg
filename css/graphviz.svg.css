@@ -25,9 +25,11 @@
     position: relative;
 }
 
-/* stop tooltips wrapping */
+/* enable tooltips wrapping */
 .graphviz-svg .tooltip-inner {
-    white-space: nowrap;
+    white-space: pre;
+    max-width: none;
+    text-align: left;
 }
 
 /* stop people selecting text on nodes */
