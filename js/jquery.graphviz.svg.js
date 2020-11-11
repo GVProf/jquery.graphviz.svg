@@ -234,7 +234,18 @@
     // remove namespace from a[xlink:title]
     $el.children('g').children('a').filter(function () { return $(this).attr('xlink:title') }).each(function () {
       var $a = $(this)
+      var title = $a.attr('xlink:title')
+      var attrs = title.split('\n')
+      var dup_key = 'DUPLICATE: '
+      for (var i = 0; i < attrs.length; ++i) {
+        if (attrs[i].startsWith(dup_key)) {
+          var dups = attrs[i].substr(dup_key.length, attrs[i].length - dup_key.length)
+          $a.attr('data-comment', dups.split(' '))
+        }
+      }
+
       $a.attr('title', $a.attr('xlink:title'))
+
       $a.removeAttr('xlink:title')
       if (options.tooltips) {
         options.tooltips.init.call(this, that.$element)
@@ -493,6 +504,28 @@
       this.tooltip($everything)
     }
   }
+
+   GraphvizSvg.prototype.highlightDup = function (node, nodes) {
+     var comment = $(node).children('g').children('a')
+     var dup = $(comment).attr('data-comment')
+     var dups = dup.split(',')
+     var dict = {}
+     for (var i = 0; i < dups.length - 1; ++i) {
+       dict[dups[i]] = true
+     }
+     var color = '#00a8ff80'
+     $(node).find('circle, ellipse').each(function () {
+       $(this).attr('fill', color)
+     })
+     nodes.each(function () {
+       var node_id = $(this).attr('data-name')
+       if (node_id in dict) {
+         $(this).find('circle, ellipse').each(function () {
+           $(this).attr('fill', color)
+         })
+       }
+     })
+   }
 
   GraphvizSvg.prototype.destroy = function () {
     var that = this
