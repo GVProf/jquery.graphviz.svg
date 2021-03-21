@@ -210,7 +210,11 @@
       if (isNode) {
         this._nodesByName[title] = $el[0]
       } else {
-        this._edgesByName[title] = $el[0]
+        if (title in this._edgesByName) {
+          this._edgesByName[title].push($el[0])
+        } else {
+          this._edgesByName[title] = [$el[0]]
+        }
       }
       // without a title we can't tell if its a user comment or not
       var previousSibling = $el[0].previousSibling
