@@ -21,7 +21,7 @@
  */
 
 
- +function ($) {
++function ($) {
   'use strict'
 
   // Cross Browser starts/endsWith support
@@ -153,6 +153,8 @@
     this.$edges = $graph.children('.edge')
     this._nodesByName = {}
     this._edgesByName = {}
+    this._incomingNeighbors = {}
+    this._outgoingNeighbors = {}
 
     // add top level class and copy background color to element
     this.$element.addClass('graphviz-svg')
@@ -164,6 +166,30 @@
     var that = this
     this.$nodes.each(function () { that.setupNodesEdges($(this), true) })
     this.$edges.each(function () { that.setupNodesEdges($(this), false) })
+
+    // setup neighbors
+    for (var edge in this._edgesByName) {
+      var edge_nodes = edge.split('->')
+      var from = edge_nodes[0]
+      var to = edge_nodes[1]
+
+      if (!(from in this._outgoingNeighbors)) {
+        this._outgoingNeighbors[from] = {}
+      }
+      this._outgoingNeighbors[from][to] = edge
+
+      if (!(to in this._incomingNeighbors)) {
+        this._incomingNeighbors[to] = {}
+      }
+      this._incomingNeighbors[to][from] = edge 
+    }
+    
+    //// debug
+    //for (var from in this._outgoingNeighbors) {
+    //  for (var to in this._outgoingNeighbors[from]) {
+    //    console.log("from " + from + " to " + to)
+    //  }
+    //}
 
     // remove the graph title element
     var $title = this.$graph.children('title')
@@ -210,11 +236,12 @@
       if (isNode) {
         this._nodesByName[title] = $el[0]
       } else {
-        if (title in this._edgesByName) {
-          this._edgesByName[title].push($el[0])
-        } else {
-          this._edgesByName[title] = [$el[0]]
-        }
+        this._edgesByName[title] = $el[0]
+        //if (title in this._edgesByName) {
+        //  this._edgesByName[title].push($el[0])
+        //} else {
+        //  this._edgesByName[title] = [$el[0]]
+        //}
       }
       // without a title we can't tell if its a user comment or not
       var previousSibling = $el[0].previousSibling
@@ -346,13 +373,20 @@
     return retval
   }
 
-  GraphvizSvg.prototype.findEdge = function (nodeName, testEdge, $retval) {
+  GraphvizSvg.prototype.findEdge = function (nodeName, outgoing, testEdge, $retval) {
     var retval = []
-    for (var name in this._edgesByName) {
-      var match = testEdge(nodeName, name)
+    var edges = null
+    if (outgoing) {
+      edges = this._outgoingNeighbors
+    } else {
+      edges = this._incomingNeighbors
+    }
+    for (var name in edges[nodeName]) {
+      var edgeName = edges[nodeName][name]
+      var match = testEdge(nodeName, edgeName)
       if (match) {
         if ($retval) {
-          $retval.push(this._edgesByName[name])
+          $retval.push(this._edgesByName[edgeName])
         }
         retval.push(match)
       }
@@ -360,19 +394,19 @@
     return retval
   }
 
-  GraphvizSvg.prototype.findLinked = function (node, includeEdges, testEdge, $retval) {
+  GraphvizSvg.prototype.findLinked = function (node, includeEdges, outgoing, testEdge, $retval) {
     var that = this
     var $node = $(node)
     var $edges = null
     if (includeEdges) {
       $edges = $retval
     }
-    var names = this.findEdge($node.attr('data-name'), testEdge, $edges)
+    var names = this.findEdge($node.attr('data-name'), outgoing, testEdge, $edges)
     for (var i in names) {
       var n = this._nodesByName[names[i]]
       if (!$retval.is(n)) {
         $retval.push(n)
-        that.findLinked(n, includeEdges, testEdge, $retval)
+        that.findLinked(n, includeEdges, outgoing, testEdge, $retval)
       }
     }
   }
@@ -424,7 +458,7 @@
 
   GraphvizSvg.prototype.linkedTo = function (node, includeEdges) {
     var $retval = $()
-    this.findLinked(node, includeEdges, function (nodeName, edgeName) {
+    this.findLinked(node, includeEdges, false, function (nodeName, edgeName) {
       var other = null;
       var match = '->' + nodeName
       if (edgeName.endsWith(match)) {
@@ -437,7 +471,7 @@
 
   GraphvizSvg.prototype.linkedFrom = function (node, includeEdges) {
     var $retval = $()
-    this.findLinked(node, includeEdges, function (nodeName, edgeName) {
+    this.findLinked(node, includeEdges, true, function (nodeName, edgeName) {
       var other = null;
       var match = nodeName + '->'
       if (edgeName.startsWith(match)) {
@@ -450,10 +484,10 @@
 
   GraphvizSvg.prototype.linked = function (node, includeEdges) {
     var $retval = $()
-    this.findLinked(node, includeEdges, function (nodeName, edgeName) {
+    this.findLinked(node, includeEdges, true, function (nodeName, edgeName) {
       return '^' + name + '--(.*)$'
     }, $retval)
-    this.findLinked(node, includeEdges, function (nodeName, edgeName) {
+    this.findLinked(node, includeEdges, false, function (nodeName, edgeName) {
       return '^(.*)--' + name + '$'
     }, $retval)
     return $retval
@@ -512,6 +546,9 @@
    GraphvizSvg.prototype.highlightDup = function (node, nodes) {
      var comment = $(node).children('g').children('a')
      var dup = $(comment).attr('data-comment')
+     if (typeof dup == typeof undefined || dup == false) {
+       return
+     }
      var dups = dup.split(',')
      var dict = {}
      for (var i = 0; i < dups.length - 1; ++i) {
