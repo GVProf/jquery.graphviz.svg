@@ -155,6 +155,7 @@
     this._edgesByName = {}
     this._incomingNeighbors = {}
     this._outgoingNeighbors = {}
+    this._memoryIds = {}
 
     // add top level class and copy background color to element
     this.$element.addClass('graphviz-svg')
@@ -172,16 +173,23 @@
       var edge_nodes = edge.split('->')
       var from = edge_nodes[0]
       var to = edge_nodes[1]
+      var memoryId = edge_nodes[2]
 
       if (!(from in this._outgoingNeighbors)) {
         this._outgoingNeighbors[from] = {}
       }
-      this._outgoingNeighbors[from][to] = edge
+      if (!(to in this._outgoingNeighbors[from])) {
+        this._outgoingNeighbors[from][to] = {}
+      }
+      this._outgoingNeighbors[from][to][memoryId] = edge
 
       if (!(to in this._incomingNeighbors)) {
         this._incomingNeighbors[to] = {}
       }
-      this._incomingNeighbors[to][from] = edge 
+      if (!(from in this._incomingNeighbors[to])) {
+        this._incomingNeighbors[to][from] = {}
+      }
+      this._incomingNeighbors[to][from][memoryId] = edge 
     }
     
     //// debug
@@ -236,7 +244,12 @@
       if (isNode) {
         this._nodesByName[title] = $el[0]
       } else {
-        this._edgesByName[title] = $el[0]
+        var edgeTitle= $el.children('g').children('a').attr('xlink:title') 
+        var memoryNodePrefix = 'MEMORY_NODE_ID: '
+        var pos1 = edgeTitle.search(memoryNodePrefix)
+        var pos2 = edgeTitle.search('\n')
+        var memoryId = edgeTitle.substring(pos1 + memoryNodePrefix.length, pos2)
+        this._edgesByName[title + '->' + memoryId] = $el[0]
         //if (title in this._edgesByName) {
         //  this._edgesByName[title].push($el[0])
         //} else {
@@ -373,7 +386,7 @@
     return retval
   }
 
-  GraphvizSvg.prototype.findEdge = function (nodeName, outgoing, testEdge, $retval) {
+  GraphvizSvg.prototype.findEdge = function (nodeName, outgoing, firstHop, testEdge, $retval) {
     var retval = []
     var edges = null
     if (outgoing) {
@@ -381,32 +394,38 @@
     } else {
       edges = this._incomingNeighbors
     }
-    for (var name in edges[nodeName]) {
-      var edgeName = edges[nodeName][name]
-      var match = testEdge(nodeName, edgeName)
-      if (match) {
-        if ($retval) {
-          $retval.push(this._edgesByName[edgeName])
+    for (var dstNodeName in edges[nodeName]) {
+      for (var memoryId in edges[nodeName][dstNodeName]) {
+        var edgeName = edges[nodeName][dstNodeName][memoryId]
+        var pos = edgeName.lastIndexOf('->')
+        var edgeNameNoMemory = edgeName.substring(0, pos)
+        var memoryId = edgeName.substring(pos)
+        var match = testEdge(nodeName, edgeNameNoMemory, memoryId, firstHop)
+        if (match) {
+          if ($retval) {
+            $retval.push(this._edgesByName[edgeName])
+          }
+          retval.push(match)
         }
-        retval.push(match)
       }
     }
     return retval
   }
 
-  GraphvizSvg.prototype.findLinked = function (node, includeEdges, outgoing, testEdge, $retval) {
+  GraphvizSvg.prototype.findLinked = function (node, includeEdges, outgoing, firstHop, testEdge, $retval) {
     var that = this
     var $node = $(node)
     var $edges = null
     if (includeEdges) {
       $edges = $retval
     }
-    var names = this.findEdge($node.attr('data-name'), outgoing, testEdge, $edges)
+    var names = this.findEdge($node.attr('data-name'), outgoing, firstHop, testEdge, $edges)
+    firstHop = false
     for (var i in names) {
       var n = this._nodesByName[names[i]]
       if (!$retval.is(n)) {
         $retval.push(n)
-        that.findLinked(n, includeEdges, outgoing, testEdge, $retval)
+        that.findLinked(n, includeEdges, outgoing, firstHop, testEdge, $retval)
       }
     }
   }
@@ -458,36 +477,56 @@
 
   GraphvizSvg.prototype.linkedTo = function (node, includeEdges) {
     var $retval = $()
-    this.findLinked(node, includeEdges, false, function (nodeName, edgeName) {
+    var memoryIds = this._memoryIds
+    this.findLinked(node, includeEdges, false, true, function (nodeName, edgeName, memoryId, firstHop) {
       var other = null;
       var match = '->' + nodeName
       if (edgeName.endsWith(match)) {
         other = edgeName.substring(0, edgeName.length - match.length);
       }
+
+      if (firstHop == true) {
+        memoryIds[memoryId] = true
+      } else {
+        if (!(memoryId in memoryIds)) {
+          other = null
+        }
+      }
       return other;
     }, $retval)
+    this._memoryIds = {}
     return $retval
   }
 
   GraphvizSvg.prototype.linkedFrom = function (node, includeEdges) {
     var $retval = $()
-    this.findLinked(node, includeEdges, true, function (nodeName, edgeName) {
+    var memoryIds = this._memoryIds
+    this.findLinked(node, includeEdges, true, true, function (nodeName, edgeName, memoryId, firstHop) {
       var other = null;
       var match = nodeName + '->'
       if (edgeName.startsWith(match)) {
         other = edgeName.substring(match.length);
       }
+
+      if (firstHop == true) {
+        memoryIds[memoryId] = true
+      } else {
+        if (!(memoryId in memoryIds)) {
+          other = null
+        }
+      }
       return other;
     }, $retval)
+    this._memoryIds = {}
     return $retval
   }
 
   GraphvizSvg.prototype.linked = function (node, includeEdges) {
     var $retval = $()
-    this.findLinked(node, includeEdges, true, function (nodeName, edgeName) {
+    this.findLinked(node, includeEdges, true, true, function (nodeName, edgeName, memoryId, firstHop) {
       return '^' + name + '--(.*)$'
     }, $retval)
-    this.findLinked(node, includeEdges, false, function (nodeName, edgeName) {
+    this.findLinked(node, includeEdges, false, true, function (nodeName, edgeName, memoryId, firstHop) {
       return '^(.*)--' + name + '$'
     }, $retval)
     return $retval
@@ -545,6 +584,10 @@
 
    GraphvizSvg.prototype.highlightDup = function (node, nodes) {
      var comment = $(node).children('g').children('a')
+     var color = '#00a8ff80'
+     $(node).find('circle, ellipse').each(function () {
+       $(this).attr('fill', color)
+     })
      var dup = $(comment).attr('data-comment')
      if (typeof dup == typeof undefined || dup == false) {
        return
@@ -554,10 +597,6 @@
      for (var i = 0; i < dups.length - 1; ++i) {
        dict[dups[i]] = true
      }
-     var color = '#00a8ff80'
-     $(node).find('circle, ellipse').each(function () {
-       $(this).attr('fill', color)
-     })
      nodes.each(function () {
        var node_id = $(this).attr('data-name')
        if (node_id in dict) {
